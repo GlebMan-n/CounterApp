@@ -2,6 +2,7 @@
 #define COUNTERAPP_H
 
 #include <QMainWindow>
+#include <QSqlTableModel>
 #include <QTableWidget>
 #include <QDateTime>
 #include <QVBoxLayout>
@@ -45,6 +46,8 @@ private:
     std::vector<int> m_counters;
     std::atomic<int> m_totalValue{0};
     std::atomic<double> m_frequency{0.0};
+
+
 
 };
 #endif // COUNTERAPP_H

@@ -1,5 +1,4 @@
 #include "counterapp.h"
-#include "ui_counterapp.h"
 
 CounterApp::CounterApp(QWidget *parent)
     : QMainWindow(parent)
@@ -18,6 +17,8 @@ CounterApp::CounterApp(QWidget *parent)
     // Создание таблицы в БД, если её нет
     QSqlQuery query;
     query.exec("CREATE TABLE IF NOT EXISTS counters (id INTEGER PRIMARY KEY, value INTEGER)");
+    //Таблица для бэкапа данных перед записью
+    query.exec("CREATE TABLE IF NOT EXISTS counters_backup (id INTEGER PRIMARY KEY, value INTEGER)");
 
     // Загрузка счетчиков из БД
     loadCountersFromDB();
@@ -34,7 +35,7 @@ CounterApp::CounterApp(QWidget *parent)
 // Деструктор для корректной остановки потока
 CounterApp::~CounterApp()
 {
-    m_incrementThread->join();
+    m_incrementThread.reset();
     m_db.close();
 }
 
@@ -65,6 +66,7 @@ void CounterApp::setupUi()
     connect(m_addButton, &QPushButton::clicked, this, &CounterApp::addCounter);
     connect(m_removeButton, &QPushButton::clicked, this, &CounterApp::removeCounter);
     connect(m_saveButton, &QPushButton::clicked, this, &CounterApp::saveCountersToDB);
+
 }
 
 // Добавление счетчика
@@ -89,10 +91,24 @@ void CounterApp::removeCounter()
 }
 
 // Сохранение в БД
-void CounterApp::saveCountersToDB() {
+void CounterApp::saveCountersToDB()
+{
+    //Проверим корректность данных перед сохранением
+    if(m_counters.size() == 0)
+    {
+        QMessageBox::critical(this, "Ошибка, счетчики пусты", m_db.lastError().text());
+        return;
+    }
+
     QSqlQuery query;
+    //Очищаем прошлые данные
+    query.exec("DELETE FROM counters_backup");
+    //Делаем бэкап на всякий случай
+    query.exec("INSERT INTO counters_backup SELECT * FROM counters;");
+    //Очищаем данные
     query.exec("DELETE FROM counters");
 
+    //Сохраняем текущее состояние счетчиков
     std::lock_guard<std::mutex> lock(m_countersMutex);
     for (size_t i = 0; i < m_counters.size(); ++i) {
         query.prepare("INSERT INTO counters (value) VALUES (?)");
@@ -115,7 +131,8 @@ void CounterApp::loadCountersFromDB() {
 }
 
 // Поток инкремента счетчиков
-void CounterApp::incrementCounters() {
+void CounterApp::incrementCounters()
+{
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -129,7 +146,8 @@ void CounterApp::incrementCounters() {
 }
 
 // Обновление частоты
-void CounterApp::updateFrequencyLabel() {
+void CounterApp::updateFrequencyLabel()
+{
     static int lastTotalValue = 0;
     static double lastTime = 0.0;
 
