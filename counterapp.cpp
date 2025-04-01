@@ -78,7 +78,6 @@ void CounterApp::addCounter() {
     QSqlRecord record = m_model->record();
     record.setValue("value", 0);
     if (m_model->insertRecord(-1, record)) {
-        m_totalValue += 0;
         submitModel();
     }
 }
@@ -90,16 +89,14 @@ void CounterApp::removeCounter()
 
     std::lock_guard<std::mutex> lock(m_countersMutex);
     for (const QModelIndex &index : selected) {
-        int value = m_model->record(index.row()).value("value").toInt();
         m_model->removeRow(index.row());
-        m_totalValue -= value;
     }
     submitModel();
 }
 
 void CounterApp::saveCountersToDB()
 {
-
+    m_pause = true;
     if (m_model->rowCount() == 0)
     {
         if (QMessageBox::No == QMessageBox::question(this,
@@ -122,40 +119,51 @@ void CounterApp::saveCountersToDB()
 
 void CounterApp::incrementCounters()
 {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     while (true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
+        if(m_pause)
+            continue;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         std::lock_guard<std::mutex> lock(m_countersMutex);
-        for (int i = 0; i < m_model->rowCount(); ++i) {
+        for (auto i = 0; i < m_model->rowCount(); ++i) {
             int value = m_model->record(i).value("value").toInt() + 1;
             m_model->setData(m_model->index(i, 1), value);
-            m_totalValue += 1;
         }
     }
 }
 
 void CounterApp::updateFrequencyLabel()
 {
-    static int lastTotalValue = 0;
-    static double lastTime = 0.0;
-
+    int totalValue = getTotalValue();
+    if(totalValue < 0)
+        return;
     double currentTime = QDateTime::currentMSecsSinceEpoch() / 1000.0;
 
-    if (lastTime == 0.0) {
-        lastTime = currentTime;
-        lastTotalValue = m_totalValue;
+    if (m_lastTime == 0) {
+        m_lastTime = currentTime;
+        m_lastTotalValue = totalValue;
+
         return;
     }
-    double deltaValue = m_totalValue - lastTotalValue;
-    double deltaTime = currentTime - lastTime;
-    if(deltaValue / deltaTime > -1)
-    {
-        m_frequency = deltaValue / deltaTime;
-        m_frequencyLabel->setText(QString("Частота: %1 \nВремя в секундах: %2").arg(m_frequency, 0, 'f', 2).arg(currentTime,0,'i',0));
-    }
 
-    lastTime = currentTime;
-    lastTotalValue = m_totalValue;
+    double deltaValue = totalValue - m_lastTotalValue;
+    double deltaTime = currentTime - m_lastTime;
+    double m_frequency = deltaValue / deltaTime;
+    qWarning() << "\n\n";
+    qWarning() << "m_frequency: " << m_frequency;
+    qWarning() << "totalValue: " << totalValue;
+    qWarning() << "deltaValue: " << deltaValue;
+    qWarning() << "deltaTime: " << deltaTime;
+    qWarning() << "m_lastTime: " << m_lastTime;
+    qWarning() << "m_lastTotalValue: " << m_lastTotalValue;
+    qWarning() << "currentTime: " << currentTime;
+    qWarning() << "\n\n";
+    if(m_frequency > -1)
+        m_frequencyLabel->setText(QString("Частота: %1 \nВремя в секундах: %2").arg(m_frequency,0,'f',2).arg(currentTime,0,'i',0));
+    if(m_frequency > 500)
+        qWarning() << "aaa";
+    m_lastTime = currentTime;
+    m_lastTotalValue = totalValue;
     submitModel();
 }
 
@@ -166,4 +174,29 @@ void CounterApp::submitModel()
     m_model->submitAll();
     m_tableView->setCurrentIndex(currentIndex);
     m_tableView->selectionModel()->select(currentSelection, QItemSelectionModel::Select);
+}
+
+int CounterApp::getTotalValue()
+{
+    QSqlQuery query;
+    if (!query.exec("SELECT SUM(value) FROM counters")) {
+        qDebug() << "Ошибка выполнения SQL запроса:" << query.lastError().text();
+        return -1; // или обработка ошибки
+    }
+
+    if (query.next()) {
+        bool ok;
+        int sum = query.value(0).toInt(&ok);
+
+        if (!ok) {
+            qDebug() << "Ошибка преобразования данных";
+            return -1;
+        }
+
+        qDebug() << "Сумма в колонке:" << sum;
+        return sum;
+    } else {
+        qDebug() << "Нет данных в результате запроса";
+    }
+     return -1;
 }

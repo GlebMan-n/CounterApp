@@ -14,6 +14,7 @@
 #include <QSqlError>
 #include <QMessageBox>
 #include <QTimer>
+#include <QDebug>
 #include <QItemSelectionModel>
 #include <thread>
 #include <mutex>
@@ -34,7 +35,7 @@ public:
     void incrementCounters();
     void updateFrequencyLabel();
     void submitModel();
-
+    int getTotalValue();
 private:
     QTableView* m_tableView;
     QSqlTableModel* m_model;
@@ -47,8 +48,10 @@ private:
     QTimer* m_updateFrequencyTimer;
 
     std::mutex m_countersMutex;
-    std::atomic<int> m_totalValue{0};
-    std::atomic<double> m_frequency{0.0};
+   // std::atomic<double> m_frequency{0.0};
+    int m_lastTotalValue{0};
+    double m_lastTime{0.0};
+    bool m_pause{false};
 };
 
 #endif // COUNTERAPP_H
