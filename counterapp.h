@@ -8,12 +8,13 @@
 #include <QVBoxLayout>
 #include <QPushButton>
 #include <QLabel>
-#include <QSqlRecord>
 #include <QSqlQuery>
+#include <QSqlRecord>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QMessageBox>
 #include <QTimer>
+#include <QItemSelectionModel>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -32,6 +33,7 @@ public:
     void loadCountersFromDB();
     void incrementCounters();
     void updateFrequencyLabel();
+    void submitModel();
 
 private:
     QTableView* m_tableView;
