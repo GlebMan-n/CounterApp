@@ -17,11 +17,17 @@ CounterApp::CounterApp(QWidget *parent)
     // Создание таблицы в БД, если её нет
     QSqlQuery query;
     query.exec("CREATE TABLE IF NOT EXISTS counters (id INTEGER PRIMARY KEY, value INTEGER)");
-    //Таблица для бэкапа данных перед записью
     query.exec("CREATE TABLE IF NOT EXISTS counters_backup (id INTEGER PRIMARY KEY, value INTEGER)");
 
-    // Загрузка счетчиков из БД
-    loadCountersFromDB();
+    // Настройка модели
+    m_model = new QSqlTableModel(this, m_db);
+    m_model->setTable("counters");
+    m_model->setEditStrategy(QSqlTableModel::OnManualSubmit);
+    m_model->select();
+    m_model->setHeaderData(1, Qt::Horizontal, "Счетчик");
+
+    m_tableView->setModel(m_model);
+    m_tableView->setColumnHidden(0, true); // Скрываем колонку id
 
     // Запуск потока для инкремента
     m_incrementThread = std::make_unique<std::thread>(&CounterApp::incrementCounters, this);
@@ -32,7 +38,6 @@ CounterApp::CounterApp(QWidget *parent)
     m_updateFrequencyTimer->start(1000);
 }
 
-// Деструктор для корректной остановки потока
 CounterApp::~CounterApp()
 {
     m_incrementThread.reset();
@@ -41,8 +46,7 @@ CounterApp::~CounterApp()
 
 void CounterApp::setupUi()
 {
-    m_table = new QTableWidget(0, 1, this);
-    m_table->setHorizontalHeaderLabels({"Счетчик"});
+    m_tableView = new QTableView(this);
 
     m_addButton = new QPushButton("Добавить");
     m_removeButton = new QPushButton("Удалить");
@@ -51,7 +55,7 @@ void CounterApp::setupUi()
     m_frequencyLabel = new QLabel("Частота: 0.0");
 
     auto* layout = new QVBoxLayout;
-    layout->addWidget(m_table);
+    layout->addWidget(m_tableView);
     layout->addWidget(m_frequencyLabel);
     auto* buttonLayout = new QHBoxLayout;
     buttonLayout->addWidget(m_addButton);
@@ -66,86 +70,60 @@ void CounterApp::setupUi()
     connect(m_addButton, &QPushButton::clicked, this, &CounterApp::addCounter);
     connect(m_removeButton, &QPushButton::clicked, this, &CounterApp::removeCounter);
     connect(m_saveButton, &QPushButton::clicked, this, &CounterApp::saveCountersToDB);
-
 }
 
-// Добавление счетчика
 void CounterApp::addCounter() {
     std::lock_guard<std::mutex> lock(m_countersMutex);
-    m_counters.push_back(0);
-    m_table->setRowCount(m_counters.size());
-    m_table->setItem(m_counters.size() - 1, 0, new QTableWidgetItem(QString::number(0)));
-    m_totalValue += 0;
+    QSqlRecord record = m_model->record();
+    record.setValue("value", 0);
+    if (m_model->insertRecord(-1, record)) {
+        m_totalValue += 0;
+        m_model->submitAll();
+    }
 }
 
-// Удаление счетчика
 void CounterApp::removeCounter()
 {
-    if (m_table->currentRow() == -1) return;
+    if (m_tableView->currentIndex().row() == -1) return;
 
     std::lock_guard<std::mutex> lock(m_countersMutex);
-    int value = m_counters[m_table->currentRow()];
-    m_counters.erase(m_counters.begin() + m_table->currentRow());
-    m_table->removeRow(m_table->currentRow());
+    int value = m_model->record(m_tableView->currentIndex().row()).value("value").toInt();
+    m_model->removeRow(m_tableView->currentIndex().row());
     m_totalValue -= value;
+    m_model->submitAll();
 }
 
-// Сохранение в БД
 void CounterApp::saveCountersToDB()
 {
-    //Проверим корректность данных перед сохранением
-    if(m_counters.size() == 0)
-    {
-        QMessageBox::critical(this, "Ошибка, счетчики пусты", m_db.lastError().text());
+    if (m_model->rowCount() == 0) {
+        QMessageBox::critical(this, "Ошибка", "Счетчики пусты");
         return;
     }
 
     QSqlQuery query;
-    //Очищаем прошлые данные
     query.exec("DELETE FROM counters_backup");
-    //Делаем бэкап на всякий случай
     query.exec("INSERT INTO counters_backup SELECT * FROM counters;");
-    //Очищаем данные
     query.exec("DELETE FROM counters");
 
-    //Сохраняем текущее состояние счетчиков
     std::lock_guard<std::mutex> lock(m_countersMutex);
-    for (size_t i = 0; i < m_counters.size(); ++i) {
-        query.prepare("INSERT INTO counters (value) VALUES (?)");
-        query.addBindValue(m_counters[i]);
-        query.exec();
-    }
+    m_model->submitAll();
 }
 
-// Загрузка из БД
-void CounterApp::loadCountersFromDB() {
-    QSqlQuery query("SELECT value FROM counters");
-
-    while (query.next()) {
-        m_counters.push_back(query.value(0).toInt());
-        m_table->setRowCount(m_counters.size());
-        m_table->setItem(m_counters.size() - 1, 0,
-                       new QTableWidgetItem(QString::number(m_counters.back())));
-        m_totalValue += m_counters.back();
-    }
-}
-
-// Поток инкремента счетчиков
 void CounterApp::incrementCounters()
 {
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         std::lock_guard<std::mutex> lock(m_countersMutex);
-        for (size_t i = 0; i < m_counters.size(); ++i) {
-            m_counters[i]++;
-            m_table->item(i, 0)->setText(QString::number(m_counters[i]));
+        for (int i = 0; i < m_model->rowCount(); ++i) {
+            int value = m_model->record(i).value("value").toInt() + 1;
+            m_model->setData(m_model->index(i, 1), value);
             m_totalValue += 1;
         }
+        m_model->submitAll();
     }
 }
 
-// Обновление частоты
 void CounterApp::updateFrequencyLabel()
 {
     static int lastTotalValue = 0;

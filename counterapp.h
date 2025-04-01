@@ -3,13 +3,14 @@
 
 #include <QMainWindow>
 #include <QSqlTableModel>
-#include <QTableWidget>
+#include <QTableView>
 #include <QDateTime>
 #include <QVBoxLayout>
 #include <QPushButton>
 #include <QLabel>
-#include <QSqlDatabase>
+#include <QSqlRecord>
 #include <QSqlQuery>
+#include <QSqlDatabase>
 #include <QSqlError>
 #include <QMessageBox>
 #include <QTimer>
@@ -33,7 +34,8 @@ public:
     void updateFrequencyLabel();
 
 private:
-    QTableWidget* m_table;
+    QTableView* m_tableView;
+    QSqlTableModel* m_model;
     QPushButton* m_addButton;
     QPushButton* m_removeButton;
     QPushButton* m_saveButton;
@@ -43,11 +45,8 @@ private:
     QTimer* m_updateFrequencyTimer;
 
     std::mutex m_countersMutex;
-    std::vector<int> m_counters;
     std::atomic<int> m_totalValue{0};
     std::atomic<double> m_frequency{0.0};
-
-
-
 };
+
 #endif // COUNTERAPP_H
